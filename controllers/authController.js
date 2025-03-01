@@ -1,7 +1,15 @@
 const jwt = require("jsonwebtoken");
 const User = require("../models/userModel");
-const { signupSchema, signinSchema } = require("../middlewares/validator");
-const { hashPassword, validatePassword, hmacProcess } = require("../utils/authUtils");
+const {
+  signupSchema,
+  signinSchema,
+  acceptCodeSchema,
+} = require("../middlewares/validator");
+const {
+  hashPassword,
+  validatePassword,
+  hmacProcess,
+} = require("../utils/authUtils");
 const transport = require("../middlewares/sendMail");
 
 // User signup
@@ -148,5 +156,69 @@ exports.sendVerificationCode = async (req, res) => {
       .json({ success: false, message: "Sendig code failed" });
   } catch (error) {
     console.log(error);
+  }
+};
+
+exports.verifyVerificationCode = async (req, res) => {
+  const { email, providedCode } = req.body;
+
+  try {
+    const { error } = acceptCodeSchema.validate({ email, providedCode });
+
+    if (error) {
+      return res
+        .status(401)
+        .json({ success: false, message: error.details[0].message });
+    }
+
+    const codeValue = providedCode.toString();
+    const existingUser = await User.findOne({ email }).select(
+      "+verificationCode +verificationCodeValidation"
+    );
+
+    if (!existingUser) {
+      return res
+        .status(404)
+        .json({ success: false, message: "User does not exist" });
+    }
+
+    if (existingUser.verified) {
+      return res
+        .status(400)
+        .json({ success: false, message: "You are already verified" });
+    }
+
+    if (
+      !existingUser.verificationCode ||
+      !existingUser.verificationCodeValidation
+    ) {
+      return res.status(400).json({ success: false, message: "No code sent" });
+    }
+
+    if (Date.now() - existingUser.verificationCodeValidation > 5 * 60 * 1000) {
+      return res.status(400).json({ success: false, message: "Code Expired" });
+    }
+
+    const hashedCodeValue = hmacProcess(
+      codeValue,
+      process.env.HMAC_VERIFICATION_CODE_SECRET
+    );
+
+    if (hashedCodeValue === existingUser.verificationCode) {
+      existingUser.verified = true;
+      existingUser.verificationCode = undefined;
+      existingUser.verificationCodeValidation = undefined;
+      await existingUser.save();
+      return res
+        .status(200)
+        .json({ success: true, message: "Account verified" });
+    }
+
+    return res
+      .status(400)
+      .json({ success: false, message: "Unexpected error" });
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 };
