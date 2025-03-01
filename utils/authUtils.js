@@ -1,4 +1,5 @@
 const bcrypt = require('bcrypt');
+const {createHmac} = require('crypto');
 
 // Hash a password
 exports.hashPassword = async (password) => {
@@ -9,3 +10,8 @@ exports.hashPassword = async (password) => {
 exports.validatePassword = async (password, hashedPassword) => {
   return await bcrypt.compare(password, hashedPassword);
 };
+
+exports.hmacProcess = (value,key) => {
+  const result = createHmac('sha256', key).update(value).digest('hex');
+  return result;
+}
